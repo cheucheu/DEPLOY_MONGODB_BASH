@@ -1,0 +1,51 @@
+####################
+#version mongodb   #
+####################
+version=3.6.2
+####################
+#size data Mongodb #
+####################
+size=6G
+###################
+#replicaset config#
+###################
+replicaset=RS0:dvxx2asc8m:27017
+replicaset=RS0:dvxx2asc8n:27018
+replicaset=RS0:dvxx2asc8p:27019
+replicaset=RS1:dvxx2asc8q:27017
+###################
+#repset_name      #
+###################
+repset_name=RS0
+###################
+#role mongoDB     #
+###################
+role=restore_pitr:anyResource:anyAction
+##########################
+#password users and role #
+##########################
+password=root:root-mongo:root
+password=admin-mongo:admin-mongo:userAdminAnyDatabase
+password=siteUserAdmin:admin-mongo:userAdminAnyDatabase
+password=restore:restore:dbAdminAnyDatabase,dbAdmin,restore,restore_pitr
+###################
+#mount            #
+###################
+mount=infravg:mondata_lv:xfs:2G:/mondata/data
+mount=infravg:monlog_lv:ext4:1G:/mondata/log
+mount=infravg:monbackup_lv:ext4:1G:/mondata/backup
+############################
+# config servers sharding  #
+############################
+config=dvxx2asc8m:27020
+config=dvxx2asc8n:27021
+config=dvxx2asc8p:27022
+############################
+# mongos sharding          #
+############################
+mongos=dvxx2asc8m:27014
+############################
+# sharding                 #
+############################
+shard=SH1:dvxx2asc8m
+shard=SH2:dvxx2asc8q

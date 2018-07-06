@@ -1,0 +1,28 @@
+####################
+#version mongodb   #
+####################
+version=3.6.5
+###################
+#replicaset config#
+###################
+replicaset=RS0:dvxx2asc8m:27017
+replicaset=RS0:dvxx2asc8n:27018
+replicaset=RS0:dvxx2asc8p:27019
+###################
+#role mongoDB     #
+###################
+role=restore_pitr:anyResource:anyAction
+##########################
+#password users and role #
+##########################
+password=root:root-mongo:root
+password=admin-mongo:admin-mongo:userAdminAnyDatabase
+password=siteUserAdmin:admin-mongo:userAdminAnyDatabase
+password=restore:restore:dbAdminAnyDatabase,dbAdmin,restore,restore_pitr
+password=backup:backup:clusterMonitor,backup
+###################
+#mount            #
+###################
+mount=infravg:mondata_lv:xfs:2G:/mondata/data
+mount=infravg:monlog_lv:ext4:1G:/mondata/log
+mount=infravg:monbackup_lv:ext4:1G:/mondata/backup
