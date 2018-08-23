@@ -1,7 +1,9 @@
 #!/bin/ksh93
 #-----------------------------------------------------------------------------------------------------
+# Copyright(c) 2018 Orange SA
+#
 # NAME
-#    install_mongodb.ksh 
+#    install_replicaset.ksh 
 #
 # DESCRIPTION
 #
@@ -10,7 +12,7 @@
 #
 # REMARKS
 #
-#    - This shell script must be run by root with the ksh93 to use useful associative arrays.  
+#    - This shell script must be run by root with the  ksh93 to use useful associative arrays.  
 #    - The openssh configuration must be enabled to execute  remote commands between servers.
 #    - Be careful, you can't have multiple replicaset or sharded instances on the same server. 
 #      However, in a shard configuration, a server could shared a config server, a shard server and a mongos instance.
@@ -58,8 +60,8 @@
 #-----------------------------------------------------------------------------------------------------
 # CHANGE LOGS
 #    HERVE AGASSE (Orange/OF/DESI/DIXSI/PTAL) - 2018/02/20- v1.0.0 - Creation
+#    HERVE AGASSE (Orange/OF/DESI/DIXSI/PTAL) - 2018/02/20- v1.0.1 - Correction bugs and logging
 #------------------------------------------------------------------------------------------------------
-#set -x
 #  
 #------------------------------------------
 # text colors
@@ -82,7 +84,6 @@ trap 'echo ^Z not allowed breaking;F_End 1' TSTP SIGTSTP
 #-------------------------------------------
 F_End()
 {
-#set -x
 [ -t 3 ] && exec 2>&3 1>&2 3>&- # back to standard output
 ReturnCode=$1
 
@@ -96,12 +97,81 @@ fi
 exit ${ReturnCode}
 }
 
+Mon_colorShell()
+{
+    # Escape sequence and resets
+    ESC_SEQ="\x1b["
+    RESET_ALL="${ESC_SEQ}0m"
+    RESET_BOLD="${ESC_SEQ}21m"
+    RESET_UL="${ESC_SEQ}24m"
+    export ESC_SEQ RESET_ALL RESET_BOLD RESET_UL
+
+    # Foreground colours
+    FG_BLACK="${ESC_SEQ}30;"
+    FG_RED="${ESC_SEQ}31;"
+    FG_GREEN="${ESC_SEQ}32;"
+    FG_YELLOW="${ESC_SEQ}33;"
+    FG_BLUE="${ESC_SEQ}34;"
+    FG_MAGENTA="${ESC_SEQ}35;"
+    FG_CYAN="${ESC_SEQ}36;"
+    FG_WHITE="${ESC_SEQ}37;"
+    FG_BR_BLACK="${ESC_SEQ}90;"
+    FG_BR_RED="${ESC_SEQ}91;"
+    FG_BR_GREEN="${ESC_SEQ}92;"
+    FG_BR_YELLOW="${ESC_SEQ}93;"
+    FG_BR_BLUE="${ESC_SEQ}94;"
+    FG_BR_MAGENTA="${ESC_SEQ}95;"
+    FG_BR_CYAN="${ESC_SEQ}96;"
+    FG_BR_WHITE="${ESC_SEQ}97;"
+    export FG_BLACK FG_RED FG_GREEN FG_YELLOW FG_BLUE FG_MAGENTA FG_CYAN FG_WHITE
+    export FG_BR_BLACK FG_BR_RED FG_BR_GREEN FG_BR_YELLOW FG_BR_BLUE FG_BR_MAGENTA FG_BR_CYAN FG_BR_WHITE
+    
+# Background colours (optional)
+    BG_BLACK="40;"
+    BG_RED="41;"
+    BG_GREEN="42;"
+    BG_YELLOW="43;"
+    BG_BLUE="44;"
+    BG_MAGENTA="45;"
+    BG_CYAN="46;"
+    BG_WHITE="47;"
+    export BG_BLACK BG_RED BG_GREEN BG_YELLOW BG_BLUE BG_MAGENTA BG_CYAN BG_WHITE
+
+    # Font styles
+    FS_REG="0m"
+    FS_BOLD="1m"
+    FS_UL="4m"
+    export FS_REG FS_BOLD FS_UL
+}
+
+Mon_colorShell
+F_log()
+{
+    texte="$1"
+    [ -z "${texte}" ] && texte="UNDEFINED TEXT"
+    errtype="$2" # INFO / WARN / ERROR
+    [ -z "${errtype}" ] && errtype="INFO"
+    datetime=$(date "+%Y/%m/%d %H:%M:%S")
+    case "${errtype}" in
+        INFO)   errtypeText="${FG_GREEN}${FS_BOLD}";;
+        WARN)   errtypeText="${FG_YELLOW}${FS_BOLD}";;
+        ERROR)  errtypeText="${FG_RED}${FS_BOLD}";;
+        *)      ;;
+    esac
+
+    # Delete log file older than N days
+    find ${SEARCHLOGFILE} -mtime +${NBDAYLOGFILE} -exec rm {} \; >/dev/null 2>&1
+
+    [ -z "$SILENT" ] && printf "%s\t${errtypeText}%5s${RESET_ALL} - %s - %s\n" "${datetime}" "${errtype}" "${HOSTNAME}" "${texte}"
+    printf "%s %5s - %s - %s\n" "${datetime}" "${errtype}" "${HOSTNAME}" "${texte}" >> ${LogFile} 2>&1
+}
+
+
 #******************************************************************
 # Create ssh open connection between primary and standby
 #******************************************************************
 F_ssh_key()
 {
-#set -x
 PRIMARY_HOST=$1
 STANDBY_HOST=$2
 # Allow remote login without password prompt
@@ -171,8 +241,7 @@ typeset var WVERSION=$2
 typeset var WVG=$3
 typeset var WLV=$4
 typeset var WFS_OPTION=$5
-typeset var WFS_SIZE=$6
-typeset var WMOUNT_POINT=$7
+typeset var WMOUNT_POINT=$6
 
 LOCAL=`uname -n`
 
@@ -192,8 +261,9 @@ then
         #echo y | yum remove mongodb-orange-products-tools-$WVERSION
 	#echo y | yum remove mongodb-orange-products-mongos-$WVERSION
 	umount ${WMOUNT_POINT}
-	echo y | lvremove /dev/${WVG}/${WLV} ${WVG}
+	echo y | lvremove /dev/${WVG}/${WLV} 
 	rm -rf ${WMOUNT_POINT}
+        rm -rf /opt/mongodb/na
 	rm -f /etc/logrotate.d/mongodb
 	rm -rf /mondata/cfg/*
 	rm -rf /mondata/config/*
@@ -210,8 +280,10 @@ else
         echo y | yum remove mongo*
         #done
         umount ${WMOUNT_POINT}
-	echo y | lvremove /dev/${WVG}/${WLV} ${WVG}
+	echo y | lvchange -an /dev/${WVG}/${WLV} 
+	echo y | lvremove /dev/${WVG}/${WLV} 
         rm -rf ${WMOUNT_POINT}
+	rm -rf /opt/mongodb/na
 	rm -f /etc/logrotate.d/mongodb
 	rm -rf /mondata/cfg/*
 	rm -rf /mondata/config/*
@@ -227,16 +299,16 @@ return $?
 #****************************************************************
 F_install_rpm()
 {
-set -x
+#set -x
 WHOST=$1
 WVERSION=$2
 WMONGOS=$3
 LOCAL=`uname -n`
 
 [  -x `which yum` ] || return 1
-echo -e  "-------------------------"
-echo -e  "----- $WHOST       ------"
-echo -e  "-------------------------"
+echo -e  "\t-------------------------"
+echo -e  "\t----- $WHOST       ------"
+echo -e  "\t-------------------------"
 
 if [ "$WHOST" == "$LOCAL" ]
 then
@@ -282,8 +354,7 @@ then
                 echo "never" >/sys/kernel/mm/transparent_hugepage/enabled
                 echo "never" >/sys/kernel/mm/transparent_hugepage/defrag
                 grubby --update-kernel=ALL --args=transparent_hugepage=never
-                echo -e "
-#!/bin/bash
+                echo -e " #!/bin/bash
 ### BEGIN INIT INFO
 # Provides:          disable-transparent-hugepages
 # Required-Start:    $local_fs
@@ -296,7 +367,7 @@ then
 #                    database performance.
 ### END INIT INFO
 
-case $1 in
+case \$1 in
   start)
     if [ -d /sys/kernel/mm/transparent_hugepage ]; then
       thp_path=/sys/kernel/mm/transparent_hugepage
@@ -306,16 +377,16 @@ case $1 in
       return 0
     fi
 
-    echo 'never' > ${thp_path}/enabled
-    echo 'never' > ${thp_path}/defrag
+    echo 'never' > \${thp_path}/enabled
+    echo 'never' > \${thp_path}/defrag
     re='^[0-1]+$'
-    if [[ $(cat ${thp_path}/khugepaged/defrag) =~ $re ]]
+    if [[ \$(cat \${thp_path}/khugepaged/defrag) =~ \$re ]]
     then
       # RHEL 7
-      echo 0  > ${thp_path}/khugepaged/defrag
+      echo 0  > \${thp_path}/khugepaged/defrag
     else
       # RHEL 6
-      echo 'no' > ${thp_path}/khugepaged/defrag
+      echo 'no' > \${thp_path}/khugepaged/defrag
     fi
 
     unset re
@@ -326,52 +397,13 @@ esac"  > /etc/init.d/disable-transparent-hugepages
         chkconfig --add disable-transparent-hugepages
 
         else
-         ssh -T -C root@${HOST}<<-EOSSH >> ${LogFile} 2>&1
+	scp root@${LOCAL}:/etc/init.d/disable-transparent-hugepages root@${HOST}:/etc/init.d/disable-transparent-hugepages
+        ssh -T -C root@${HOST}<<-EOSSH >> ${LogFile} 2>&1
                 echo "never" >/sys/kernel/mm/transparent_hugepage/enabled
                 echo "never" >/sys/kernel/mm/transparent_hugepage/defrag
                 grubby --update-kernel=ALL --args=transparent_hugepage=never
-                echo -e "
-#!/bin/bash
-### BEGIN INIT INFO
-# Provides:          disable-transparent-hugepages
-# Required-Start:    $local_fs
-# Required-Stop:
-# X-Start-Before:    mongod mongodb-mms-automation-agent
-# Default-Start:     2 3 4 5
-# Default-Stop:      0 1 6
-# Short-Description: Disable Linux transparent huge pages
-# Description:       Disable Linux transparent huge pages, to improve
-#                    database performance.
-### END INIT INFO
-case $1 in
-  start)
-    if [ -d /sys/kernel/mm/transparent_hugepage ]; then
-      thp_path=/sys/kernel/mm/transparent_hugepage
-    elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
-      thp_path=/sys/kernel/mm/redhat_transparent_hugepage
-    else
-      return 0
-    fi
-
-    echo 'never' > ${thp_path}/enabled
-    echo 'never' > ${thp_path}/defrag
-
-    re='^[0-1]+$'
-    if [[ $(cat ${thp_path}/khugepaged/defrag) =~ $re ]]
-    then
-      # RHEL 7
-      echo 0  > ${thp_path}/khugepaged/defrag
-    else
-      # RHEL 6
-      echo 'no' > ${thp_path}/khugepaged/defrag
-    fi
-
-   unset re
-    unset thp_path
-    ;;
-esac" > /etc/init.d/disable-transparent-hugepages
-        chmod 755 /etc/init.d/disable-transparent-hugepages
-        chkconfig --add disable-transparent-hugepages
+        	chmod 755 /etc/init.d/disable-transparent-hugepages
+        	chkconfig --add disable-transparent-hugepages
 EOSSH
         fi
 fi
@@ -393,7 +425,9 @@ then
         echo -e '[nosql]\nname=nosql\nbaseurl="http://repoyum-central.itn.ftgroup/yum/repos/orange/product/nosql/el7/"\nenabled=0\ngpgcheck=0' >/etc/yum.repos.d/nosql.repo
         fi
 else
-        ssh -v  -T -C root@${WHOST} <<-EOSSH 
+	#debug mode 
+	#ssh -v 
+        ssh  -T -C root@${WHOST} <<-EOSSH 
         if [ ! -f "/etc/yum.repos.d/nosql.repo" ]
         then
         echo -e '[nosql]\nname=nosql\nbaseurl="http://repoyum-central.itn.ftgroup/yum/repos/orange/product/nosql/el7/"\nenabled=0\ngpgcheck=0' >/etc/yum.repos.d/nosql.repo
@@ -441,7 +475,7 @@ then
 	fi
 	
 else
-	ssh -v -T -C root@${WHOST}<<-EOSSH >> ${LogFile} 2>&1
+	ssh  -T -C root@${WHOST}<<-EOSSH >> ${LogFile} 2>&1
 		#set -x
 		$(typeset -f F_Suppress_lines)
 		if [ ! -e "${WMOUNT_POINT}"  ]
@@ -516,7 +550,7 @@ return $?
 #****************************************************************
 F_connect_rs()
 {
-set -x
+#set -x
 typeset var CONNECT_STRING=$1
 typeset var WUSER=$2
 typeset var WPASSWORD=$3
@@ -534,7 +568,7 @@ return $?
 #****************************************************************
 F_cr_role_mongodb()
 {
-set -x
+#set -x
 typeset var WHOST=$1
 typeset var WHOST_TCP=$2
 typeset var WROLE=$3
@@ -555,7 +589,7 @@ return $?
 #****************************************************************
 F_cr_user_mongodb()
 {
-set -x
+#set -x
 typeset var WHOST=$1
 typeset var WHOST_TCP=$2
 typeset var WUSER=$3
@@ -679,7 +713,7 @@ echo "{ \"_id\": $1, \"host\": \"$2\"}"
 #****************************************************************
 F_init_rs() 
 {
-set -x
+#set -x
 typeset var WHOST=$1
 typeset var WHOST_TCP=$2
 typeset var WUSER=$3
@@ -713,7 +747,7 @@ return $?
 #****************************************************************
 F_run_mongos()
 {
-set -x
+#set -x
 typeset var WHOST=$1
 typeset var WHOST_TCP=$2
 typeset var WUSER=$3
@@ -764,7 +798,7 @@ fi
 #***************************************************************
 F_create_config()
 {
-set -x
+#set -x
 typeset var WHOST=$1
 typeset var FICH=$2
 typeset var PORT=$3
@@ -1357,7 +1391,7 @@ return 1
 #***************************************************************
 F_find_rs()
 {
-set -x
+#set -x
 elem=$1
 line_nb=0
 while [ $line_nb -lt ${#REPLICA_HOSTS[@]} ]
@@ -1377,21 +1411,25 @@ return ""
 #-------------------------------------------
 echo "${reset}"
 
-[ $# -ne 1 ] && { echo "\t@${red} You must specify a config file " ; F_End 1  ; }
-
-[ "$LOGNAME" = root ] || { echo "\t@${red}  You must be root." ; F_End 1 ; }
-
-CONFIG_FILE=$1
-[ -f "${CONFIG_FILE}" ] || { echo "\t@${red}  the config file doesn't exists."; F_End 1 ;}
-
 date_YYYYMMDD=`date +%Y%m%d`
 date_HHMMSS=`date +%H%M%S`
-LogFile=./`basename $0 .sh`_${date_YYYYMMDD}_${date_HHMMSS}.log
+LogFile=${LogFile-${PWD}/`basename $0 .sh`_${date_YYYYMMDD}_${date_HHMMSS}.log}
+SEARCHLOGFILE=${PWD}/`basename $0 .sh`__??????_??????.log
+NBDAYLOGFILE=30
+SILENT=""
+
+[ $# -ne 1 ] && { F_log "You must specify a config file" "ERROR" ; F_End 1  ; }
+
+[ "$LOGNAME" = root ] || { F_log "You must be root." "ERROR" ; F_End 1 ; }
+
+CONFIG_FILE=$1
+[ -f "${CONFIG_FILE}" ] || { F_log "The config file doesn't exists." "ERROR"; F_End 1 ;}
+
 #
 # clear log file
 echo "" > ${LogFile}
-exec 2>&1 >  ${LogFile}
-
+exec 2>&1 | tee  ${LogFile}
+F_log "Parsing file started" "INFO"
 #------------------------------------------
 # Parse File
 # ignore empty or comment line 
@@ -1546,6 +1584,7 @@ then
 else
   echo "${CONFIG_HOSTS[1]} is  set."
 fi
+F_log "Parsing file ended" "INFO"
 #---------------------------------
 # Old  Parse file
 #---------------------------------
@@ -1563,7 +1602,7 @@ fi
 #---------------------------------
 # Configuring SSH keys
 #---------------------------------
-echo "\t@ Configuring SSH Keys on all servers"
+F_log "Configuring SSH Keys on all servers started" "INFO"
 
 line_nb=0
 while [ $line_nb -le ${#INFRA_HOSTS[@]} ]
@@ -1584,13 +1623,13 @@ do
 
         line_nb=$((line_nb+1))
 done
-echo "\t@${green} - Finish Configurating SSH Keys "
 
+F_log "Configuring SSH Keys on all servers ended" "INFO"
 
 #---------------------------------
 # RAZ 
 #---------------------------------
-echo "Remove old installation" 
+F_log "Removing old installation started" "INFO"
 line_nb=0
 line_fs=0
 while [ $line_nb -lt ${#INFRA_HOSTS[@]} ]
@@ -1600,16 +1639,15 @@ do
 	echo "///// -> ${INFRA_HOSTS[$line_nb].hostname} \n "
 	if [ "${VG[$line_fs]}" -a "${LV[$line_fs]}" -a "${FS_OPTION[$line_fs]}" -a "${FS_SIZE[$line_fs]}" -a "${POINT_MOUNT[$line_fs]}" ];
 	then
-	 echo -e "REMOVE -> $POINT_MOUNT[$line_fs]"
-    	 F_remove_all "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" "${VG[$line_fs]}" "${LV[$line_fs]}" "${FS_OPTION[$line_fs]}" "${FS_SIZE[$line_fs]}" "${POINT_MOUNT[$line_fs]}"
+	 #echo -e "REMOVE -> $POINT_MOUNT[$line_fs]"
+    	 F_remove_all "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" "${VG[$line_fs]}" "${LV[$line_fs]}" "${FS_OPTION[$line_fs]}" "${POINT_MOUNT[$line_fs]}" 2>/dev/null
 	fi
 	line_fs=$((line_fs+1))
 	done
 	line_fs=0
 	line_nb=$((line_nb+1))
 done
-
-echo "\t@${green} - Finish removing old installation "
+F_log "Removing old installation ended" "INFO"
 
 #---------------------------------
 # Install
@@ -1622,7 +1660,7 @@ echo "\t@${green} - Finish removing old installation "
 # Adding IP and Port TCP
 # Verifying service mongodb is UP 
 #---------------------------------
-echo "Installing RPM" 
+F_log "Installing started" "INFO"
 line_nb=0
 line_fs=0
 while [ $line_nb -le ${#INFRA_HOSTS[@]} ]
@@ -1647,11 +1685,15 @@ do
 
 		if [ "${INFRA_HOSTS[$line_nb].type}" == "replicaset" ]
 		then 
-			echo "MONGOD"
-			F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" 0
+			F_log "Server Installation MONGOD" "INFO"
+			F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" 0 2>/dev/null
+                        F_log "Disabling TPH" "INFO"
 			F_disable_tph "${INFRA_HOSTS[$line_nb].hostname}"
+			F_log "Creating LogRotate configuration" "INFO"
 			F_create_logrotate "${INFRA_HOSTS[$line_nb].hostname}" mongod	
+			F_log "Updating BindIp" "INFO"
 			F_modify_BindIp "${INFRA_HOSTS[$line_nb].hostname}" "/mondata/cfg/mongod.conf"		
+			F_log "Updating TCP Port" "INFO"
 			F_modify_Port "${INFRA_HOSTS[$line_nb].hostname}" "/mondata/cfg/mongod.conf"  "${INFRA_HOSTS[$line_nb].port}"
 			#F_services_mongod "${INFRA_HOSTS[$line_nb].hostname}" stop
 			#F_services_mongod "${INFRA_HOSTS[$line_nb].hostname}" start
@@ -1661,7 +1703,7 @@ do
 			then
 				echo " MONGOS/////////////////////${INFRA_HOSTS[$line_nb].type} -- ${INFRA_HOSTS[$line_nb].hostname}" 
 				# Context mongos server
-				F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" 1
+				F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" 1 2>/dev/null
 				F_disable_tph "${INFRA_HOSTS[$line_nb].hostname}"
 				F_create_logrotate "${INFRA_HOSTS[$line_nb].hostname}" mongos
 				F_modify_BindIp "${INFRA_HOSTS[$line_nb].hostname}" "/mondata/cfg/mongos.conf"		
@@ -1670,7 +1712,7 @@ do
 			else
 				if [ "${INFRA_HOSTS[$line_nb].type}" == "config" ]
 				then
-				F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}"  0
+				F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}"  0 2>/dev/null
 				F_disable_tph "${INFRA_HOSTS[$line_nb].hostname}"
 	                        F_create_logrotate "${INFRA_HOSTS[$line_nb].hostname}" mongod
 				fi
@@ -1680,12 +1722,12 @@ do
         line_nb=$((line_nb+1))
 done
 
-echo "\t@${green} - Finish deployment and installation binaries "
-echo "${reset}"
+F_log "Installing  ended" "INFO"
 
 #---------------------------------
 # Generate KeyFile
 #---------------------------------
+F_log "Installing Keyfile started" "INFO"
 line_nb=0
 while [ $line_nb -le ${#INFRA_HOSTS[@]} ]
 do
@@ -1693,21 +1735,20 @@ do
         then
                 F_gen_keyfile "${INFRA_HOSTS[$line_nb].hostname}"
                 if [ "$?" -eq 0 ]; then
-                echo "\t@${green} - OK Generate KeyFile  -  MongoDB on ${INFRA_HOSTS[$line_nb].hostname}"
+                F_log "Generating keyfile  -  MongoDB on ${INFRA_HOSTS[$line_nb].hostname}" "INFO"
                 else
-                echo "\t@${red} - KO Generate KeyFile -  MongoDB on ${CONFIG_HOSTS[$line_nb].hostname}"
+                F_log "Generating keyfile -  MongoDB on ${CONFIG_HOSTS[$line_nb].hostname}" "ERROR"
                 exit 1
                 fi
         fi
         line_nb=$((line_nb+1))
 done
 
-echo "\t@${green} - Finish Configuring keyfiles"
-echo "${reset}"
+F_log "Installing Keyfile ended" "INFO"
 #---------------------------------
 # Testing  Alive && Connecting
 #---------------------------------
-echo "\t@Testing Alive && Connecting"
+F_log "Testing alive and connecting started" "INFO"
 line_nb=0
 while [ $line_nb -le ${#INFRA_HOSTS[@]} ]
 do
@@ -1719,18 +1760,18 @@ do
                         F_services_mongod "${INFRA_HOSTS[$line_nb].hostname}" start
 			F_alive_mongod "${INFRA_HOSTS[$line_nb].hostname}"
 			if [ "$?" -eq 0 ]; then
-  				echo "\t@${green} - OK - ${INFRA_HOSTS[$line_nb].hostname} alive"
+  				F_log "MongoDB ${INFRA_HOSTS[$line_nb].hostname} alive" "INFO"
 				#F_status_mongodb  "${INFRA_HOSTS[$line_nb].hostname}" "${INFRA_HOSTS[$line_nb].port}" ${USER} ${PASSWORD}
 				F_status_mongodb  "${INFRA_HOSTS[$line_nb].hostname}" "${INFRA_HOSTS[$line_nb].port}"
 				if [ "$?" -eq 0 ]; then
-  					echo "\t@${green} - OK - ${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port} "
+  					F_log "${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port}" "INFO"
 				else
-  					echo "\t@${red} - KO -   ${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port}"
+  					F_log "${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port}" "ERROR"
 					exit 1
 				fi	
 		
 			else
- 				echo "\t@${red} - KO -  MongoDB on ${INFRA_HOSTS[$line_nb]} not alive"
+ 				F_log  "MongoDB on ${INFRA_HOSTS[$line_nb]} not alive" "ERROR"
                			exit 1
 			fi
 		elif [ "${INFRA_HOSTS[$line_nb].type}" == "config" ]
@@ -1738,16 +1779,16 @@ do
 				F_create_config "${INFRA_HOSTS[$line_nb].hostname}" /mondata/cfg/config.conf "${INFRA_HOSTS[$line_nb].port}"	
 				F_alive_mongod "${INFRA_HOSTS[$line_nb].hostname}"
                    	     	if [ "$?" -eq 0 ]; then
-                               		echo "\t@${green} - Config Server -  OK - ${INFRA_HOSTS[$line_nb].hostname} alive"
+                               		F_log "Config Server - ${INFRA_HOSTS[$line_nb].hostname} alive" "INFO"
                                 	F_status_mongodb  "${INFRA_HOSTS[$line_nb].hostname}" "${INFRA_HOSTS[$line_nb].port}"
                                 	if [ "$?" -eq 0 ]; then
-                                       		 echo "\t@${green} - OK - ${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port} "
+                                       		F_log "${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port}" "INFO"
                                 	else
-                                       		 echo "\t@${red} - KO -   ${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port}"
+                                       		F_log "${INFRA_HOSTS[$line_nb].hostname} connecting on port ${INFRA_HOSTS[$line_nb].port}" "ERROR"
                                         	exit 1
                                 	fi
                         	else
-                                	echo "\t@${red} - Config Server - KO - ${INFRA_HOSTS[$line_nb].hostname} not alive"
+                                	F_log "Config Server - ${INFRA_HOSTS[$line_nb].hostname} not alive" "ERROR"
                                 	exit 1
                        		fi
 		elif [ "${INFRA_HOSTS[$line_nb].type}" == "mongos" ]
@@ -1759,12 +1800,12 @@ do
         fi
 	line_nb=$((line_nb+1))
 done
-echo "\t@${green} - Finish testing standalone connexion"
-echo "${reset}" 
+F_log "testing alive and connecting ended" "INFO"
 #---------------------------------
 # Creating users into DB ADMIN 
 #---------------------------------
-echo "\t@Creating users into mongodb"
+F_log "Creating users and roles started"  "INFO"
+#---------------------------------
 
 line_nb=0
 while [ $line_nb -le ${#INFRA_HOSTS[@]} ]
@@ -1787,9 +1828,9 @@ do
                         then
                                 F_cr_role_mongodb "${INFRA_HOSTS[$line_nb].hostname}" "${INFRA_HOSTS[$line_nb].port}" "${ROLEMONGO[$user_nb]}" "${RESOURCE[$user_nb]}" "${ACTIONS[$user_nb]}"
                                 if [ "$?" -eq 0 ]; then
-                                        echo "\t@${green} - OK -  creating role ${ROLEMONGO[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}"
+                                        F_log "Creating role ${ROLEMONGO[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}" "INFO"
                                 else
-                                        echo "\t@${red} - KO -  creating user ${ROLEMONGO[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}"
+                                        F_log "Creating role ${ROLEMONGO[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}" "ERROR"
                                 #       exit 1
                                 fi
                         fi
@@ -1811,9 +1852,9 @@ do
 			then 
 				F_cr_user_mongodb "${INFRA_HOSTS[$line_nb].hostname}" "${INFRA_HOSTS[$line_nb].port}" "${USER[$user_nb]}" "${PASSWORD[$user_nb]}" "${ROLE[$user_nb]}"
 				if [ "$?" -eq 0 ]; then
-					echo "\t@${green} - OK -  creating user ${USER[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}"
+					F_log "Creating user ${USER[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}" "INFO"
                                 else
-                        		echo "\t@${red} - KO -  creating user ${USER[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}"
+                        		F_log "Creating user ${USER[$user_nb]} on ${INFRA_HOSTS[$line_nb].hostname}" "ERROR"
                         	#	exit 1
 				fi
 			fi
@@ -1822,15 +1863,14 @@ do
         fi
         line_nb=$((line_nb+1))
 done
-echo "\t@${green} - Finish creating users"
-echo "${reset}" 
+F_log "Creating users and roles ended"  "INFO"
 
 #-----------------------------------------------------------
 # Modifying config file
 # Adding localhost IP into parameter bindIp 
 # Activating authentification and replicaset configuration 
 #----------------------------------------------------------
-echo "\t@Modifying config file replicaset"
+F_log "Updating config file started"  "INFO"
 line_nb=0
 while [ $line_nb -le ${#REPLICA_HOSTS[@]} ]
 do
@@ -1841,14 +1881,14 @@ do
 		F_services_mongod "${REPLICA_HOSTS[$line_nb].hostname}" stop
 		if [ $? -eq 1 ]
 		then
-			echo "\t@${red} - KO - Stopping server mongod : ${REPLICA_HOSTS[$line_nb].hostname} "
+			F_log "Stopping server mongod : ${REPLICA_HOSTS[$line_nb].hostname}" "ERROR" 
 			exit 1
 		fi
 
 		F_services_mongod "${REPLICA_HOSTS[$line_nb].hostname}" start
 		if [ $? -eq 1 ]
 		then
-			echo "\t@${red} - KO - Starting server mongod : ${REPLICA_HOSTS[$line_nb].hostname} "
+			F_log "Starting server mongod : ${REPLICA_HOSTS[$line_nb].hostname}" "ERROR"
 			exit 1
 		else
 			 F_services_mongod "${REPLICA_HOSTS[$line_nb].hostname}" status	
@@ -1864,15 +1904,15 @@ done
 #su - mongodb <<-EOF |tee -a ${LogFile} 1>&3 2>&1
 #mongo mongodb://${USER}:${PASSWORD]@${config0[0]}  --eval "rs.initiate( { _id: \"conf\", members: [ {_id: 0, host:\"${CONFIG[0]}\"}, {_id: 1, host:\"${CONFIG[1]}\"}, {_id: 2, host:\"${CONFIG[2]}\"} ]})"&
 #EOF
+F_log "Updating config file ended"  "INFO"
 
-echo "\t@${green} - Finish configurating parameter file for replication and binding "
-echo "${reset}" 
 #-----------------------------------------------------------
 # Preparing Configuration Replicaset
 # Connecting user must be root to iniatialize replication
 # Think to declare the first user in the server mongodb with the role root !
 #-----------------------------------------------------------
-echo "\t@Preparing configuration Replicaset "
+F_log "Preparing replicaset configuration - started"  "INFO"
+
 line_nb=0
 MEMBERS=""
 CONNECT_STRING=""
@@ -1904,12 +1944,10 @@ do
 	 
 	F_init_rs "${REPLICA_HOSTS[$WRSNAME].hostname}" "${REPLICA_HOSTS[WRSNAME].port}" "${USER}" "${PASSWORD}" "${CONFIG}"
 	if [[ $? != 0 ]]; then
-	        echo "[ERROR] could not initialize the replica set [${RSNAME}]"
+	        F_log "could not initialize the replica set [${RSNAME}]" "ERROR"
        		exit 1
 	else
-       		echo "[SUCCESS] Replica set ${RSNAME} started and configured"
-
-		echo "${reset}"
+       		F_log "Replica set ${RSNAME} started and configured" "INFO"
 		echo "@\t#-----------------------------------------------------------"
 		echo "@\t# Testing connexion with replicaset configuration"
 		echo "@\t#-----------------------------------------------------------"
@@ -1931,14 +1969,14 @@ done
 
 if [[ ! -z ${RSNAME} ]] && [[ ! -z ${MEMBERS} ]]
 then 
-	echo "[INFO] Configuring next replica set ${RSNAME} and initializing"
+	F_log "Configuring next replica set ${RSNAME} and initializing started"
 	CONFIG="{ _id: \"${RSNAME}\", members: [${MEMBERS}]}"
 	F_init_rs "${REPLICA_HOSTS[$WRSNAME].hostname}" "${REPLICA_HOSTS[WRSNAME].port}" "${USER}" "${PASSWORD}" "${CONFIG}"
 	if [[ $? != 0 ]]; then
-	echo "[ERROR] could not initialize the replica set [${RSNAME}]"
-	exit 1
+		F_log "could not initialize the replica set [${RSNAME}]" "ERROR"
+		exit 1
 	else
-	echo "[SUCCESS] Replica set ${WRSNAME} started and configured"
+	F_log "Replica set ${WRSNAME} started and configured" "INFO"
 	echo "@\t#-----------------------------------------------------------"
 	echo "@\t# Testing connexion with replicaset configuration : $RSNAME"
 	echo "@\t#-----------------------------------------------------------"
@@ -1948,15 +1986,15 @@ then
 	fi
 fi
 
-echo "\t@${green} - Finish activating replicaset"
-echo "${reset}" 
+F_log "Preparing replicaset configuration - ended"  "INFO"
 #-----------------------------------------------------------
 # Preparing Configuration for the config servers
 # Connecting user must be root to iniatialize replication
 # Think to declare the first user in the server mongodb with the role root !
 #-----------------------------------------------------------
-set -x
-echo "\t@[INFO]Preparing configuration replicaset for the config servers"
+if [[ ! -z ${MONGOS_HOSTS[0]} ]] && [[ ! -z ${MONGOS_PORTS[0]} ]]
+then
+F_log "Preparing replicaset configuration for config servers (sharded environment) - started"  "INFO"
 line_nb=0
 MEMBERS=""
 CONNECT_STRING=""
@@ -1991,18 +2029,19 @@ then
 	F_init_rs localhost "${INFRA_HOSTS[WRSNAME].port}" "" "" "${CONFIG}"
 
 	if [[ $? != 0 ]]; then
-		echo "[ERROR] could not initialize the replica set CREPSET"
+		F_log "could not initialize the replica set CREPSET" "ERROR"
 		exit 1
 	else
-		echo "[SUCCESS] Replica set CREPSET started and configured"
+		F_log "Replica set CREPSET started and configured" "INFO"
 	fi
 fi
 sleep 30
+F_log "Preparing replicaset configuration for config servers (sharded environment) - ended"  "INFO"
+fi
 #--------------------------------------------------------
 # Sharding
 # db.runCommand({addShard:"SH1/dvxx2asc8m:27017,dvxx2asc8n:27018,dvxx2asc8p:27019"})
 #--------------------------------------------------------
-echo "\t@Preparing configuration sharding for the replicasets"
 line_nb=0
 line_nb1=0
 line_nb2=0
@@ -2013,6 +2052,7 @@ WSHARD=""
 # create user localhost exception
 if [[ ! -z ${MONGOS_HOSTS[0]} ]] && [[ ! -z ${MONGOS_PORTS[0]} ]]
 then
+	F_log "Preparing sharding configuration  - started"  "INFO"
 	cmd=$(echo "db.getSiblingDB(\"admin\").createUser({user:\"root\",pwd:\"root-mongo\",roles:[{\"role\":\"root\",\"db\":\"admin\"}]})")
 	#F_run_mongos localhost "${MONGOS_PORTS[0]}" "" "" ${cmd}
 	F_cr_user_mongodb localhost "${MONGOS_PORTS[0]}" "${USER[0]}" "${PASSWORD[0]}" "root"
@@ -2059,24 +2099,27 @@ do
 		echo "RSNAME = $RSNAME "
 		echo "cpt boucle replicaset -> $line_nb1"
         else
-		echo "[ERROR] the server ${SHARD_HOSTS[$line_nb].hostname} does not exist in a replicaset"		
+		F_log "the server ${SHARD_HOSTS[$line_nb].hostname} does not exist in a replicaset" "ERROR"
 		exit  1
 	fi
 
 	WSHARD=""
 	line_nb2=0
 	line_nb=$((line_nb+1))
+	F_log "Preparing sharding configuration  - ended"  "INFO"
 done
+	F_log "Testing  connexion in sharding configuration  - started"  "INFO"
 # connexion test and view sharding configuration
-F_run_mongos "${MONGOS_HOSTS[0]}" "${MONGOS_PORTS[0]}" ${USER} ${PASSWORD} "sh.status()"
+	F_run_mongos "${MONGOS_HOSTS[0]}" "${MONGOS_PORTS[0]}" ${USER} ${PASSWORD} "sh.status()"
+	F_log "Testing  connexion in sharding configuration  - ended"  "INFO"
 
 # connexion replicaset test
-line_nb=0
-while  [[ $line_nb -lt ${#REPLICA_HOSTS[@]} ]] 
-do
-	F_connect_rs "${REPLICA_HOSTS[$line_nb].hostname}:${REPLICA_HOSTS[$line_nb].port}" "${USER}" "${PASSWORD}" "${REPLICA_HOSTS[$line_nb].rsname}"
-	line_nb=$((line_nb+1))
-done
+	line_nb=0
+	while  [[ $line_nb -lt ${#REPLICA_HOSTS[@]} ]] 
+	do
+		F_connect_rs "${REPLICA_HOSTS[$line_nb].hostname}:${REPLICA_HOSTS[$line_nb].port}" "${USER}" "${PASSWORD}" "${REPLICA_HOSTS[$line_nb].rsname}"
+		line_nb=$((line_nb+1))
+	done
 fi
 #
 
