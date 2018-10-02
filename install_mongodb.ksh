@@ -1,6 +1,6 @@
 #!/bin/ksh93
-#-----------------------------------------------------------------------------------------------------
-# Copyright(c) 2018 Orange SA
+#----------------
+#copyright(c) 2018 Orange SA
 #
 # NAME
 #    install_replicaset.ksh 
@@ -60,7 +60,7 @@
 #-----------------------------------------------------------------------------------------------------
 # CHANGE LOGS
 #    HERVE AGASSE (Orange/OF/DESI/DIXSI/PTAL) - 2018/02/20- v1.0.0 - Creation
-#    HERVE AGASSE (Orange/OF/DESI/DIXSI/PTAL) - 2018/02/20- v1.0.1 - Correction bugs and logging
+#    HERVE AGASSE (Orange/OF/DESI/DIXSI/PTAL) - 2018/10/01- v1.0.1 - Correction bugs and logging
 #------------------------------------------------------------------------------------------------------
 #  
 #------------------------------------------
@@ -235,7 +235,7 @@ F_killAndWait()
 #***************************************************************
 F_remove_all()
 {
-#set -x
+set -x
 typeset var WHOST=$1
 typeset var WVERSION=$2
 typeset var WVG=$3
@@ -249,17 +249,6 @@ LOCAL=`uname -n`
 
 if [ "$WHOST" == "$LOCAL" ]
 then
-	F_killAndWait mongod
-	F_killAndWait mongos
-    	find  ${WMOUNT_POINT}  -type d -exec fuser -k -9 {} \;
-	for p in `yum list | grep mongo | awk '{print $1}'`
-        do
-         echo y | yum remove $p
-        done
-        #echo y | yum remove mongodb-orange-products-server-$WVERSION 
-        #echo y | yum remove mongodb-orange-products-shell-$WVERSION 
-        #echo y | yum remove mongodb-orange-products-tools-$WVERSION
-	#echo y | yum remove mongodb-orange-products-mongos-$WVERSION
 	umount ${WMOUNT_POINT}
 	echo y | lvremove /dev/${WVG}/${WLV} 
 	rm -rf ${WMOUNT_POINT}
@@ -270,15 +259,6 @@ then
 	systemctl daemon-reload
 else
         ssh  -T -C root@${WHOST} <<-EOSSH >> ${LogFile} 2>&1
-	$(typeset -f F_killAndWait)
-	F_killAndWait mongod	
-	F_killAndWait mongos	
-	find  ${WMOUNT_POINT}  -type d -exec fuser -k -9 {} \;
-	#for p in `yum list|grep mongo|cut -d ' ' -f1`
-        #do
-	# echo -e "-----> pck $p"
-        echo y | yum remove mongo*
-        #done
         umount ${WMOUNT_POINT}
 	echo y | lvchange -an /dev/${WVG}/${WLV} 
 	echo y | lvremove /dev/${WVG}/${WLV} 
@@ -294,12 +274,44 @@ fi
 return $?
 }
 
+F_remove_rpm()
+{
+set -x
+typeset var WHOST=$1
+
+LOCAL=`uname -n`
+
+[ -x `which yum` ] || return 1
+
+if [ "$WHOST" == "$LOCAL" ]
+then
+        F_killAndWait mongod
+        F_killAndWait mongos
+        for p in `yum list | grep "^mongo" | awk '{print $1}'`
+        do
+         echo y | yum remove $p
+        done
+else
+ ssh  -T -C root@${WHOST} <<-EOSSH >> ${LogFile} 2>&1
+        $(typeset -f F_killAndWait)
+        F_killAndWait mongod
+        F_killAndWait mongos
+        #for p in `yum list|grep "^mongo"| awk '{print $1}'`
+        #do
+        # echo -e "-----> pck $p"
+        #echo y | yum remove $p
+        #done
+        echo y | yum remove mongo*
+EOSSH
+fi
+}
+
 #****************************************************************
 # Install RPM
 #****************************************************************
 F_install_rpm()
 {
-#set -x
+set -x
 WHOST=$1
 WVERSION=$2
 WMONGOS=$3
@@ -324,7 +336,7 @@ then
 	fi
 	systemctl daemon-reload
 else
-	ssh  -T -C root@${WHOST} <<-EOSSH > /dev/null 2>&1 	
+	ssh -v  -T -C root@${WHOST} <<-EOSSH   	
 	echo y | yum install mongodb-orange-products-server-$WVERSION --enablerepo=nosql
         echo y | yum install mongodb-orange-products-shell-$WVERSION --enablerepo=nosql
         echo y | yum install mongodb-orange-products-tools-$WVERSION --enablerepo=nosql
@@ -1195,7 +1207,7 @@ return $?
 #***************************************************************
 F_modify_BindIp()
 {
-#set -x
+set -x
 typeset var WHOST=$1
 typeset var FICH=$2
 LOCAL=`uname -n`
@@ -1634,6 +1646,8 @@ line_nb=0
 line_fs=0
 while [ $line_nb -lt ${#INFRA_HOSTS[@]} ]
 do
+	F_remove_rpm "${INFRA_HOSTS[$line_nb].hostname}"
+
 	while [ $line_fs -lt ${#POINT_MOUNT[@]} ]
 	do
 	echo "///// -> ${INFRA_HOSTS[$line_nb].hostname} \n "
@@ -1648,7 +1662,6 @@ do
 	line_nb=$((line_nb+1))
 done
 F_log "Removing old installation ended" "INFO"
-
 #---------------------------------
 # Install
 #---------------------------------
@@ -1686,7 +1699,7 @@ do
 		if [ "${INFRA_HOSTS[$line_nb].type}" == "replicaset" ]
 		then 
 			F_log "Server Installation MONGOD" "INFO"
-			F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" 0 2>/dev/null
+			F_install_rpm  "${INFRA_HOSTS[$line_nb].hostname}" "${VERSION}" 0
                         F_log "Disabling TPH" "INFO"
 			F_disable_tph "${INFRA_HOSTS[$line_nb].hostname}"
 			F_log "Creating LogRotate configuration" "INFO"
