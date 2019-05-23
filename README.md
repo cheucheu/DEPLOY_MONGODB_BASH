@@ -1,10 +1,11 @@
 ### DEPLOY_MONGODB_BASH  
 
-This script allows to deploy automatically a cluster mongodb ( replicaset or sharding) unser KSH 93 and SSH for remote access.
-You must use a config file to declare the configuration.
+This script allows to deploy automatically a cluster mongodb ( replicaset or sharding) under KSH 93 and SSH for remote access.
+You must use a config file to declare the configuration of your environment.
 
 To Run :  install_mongodb.ksh <config.file>
-Before read the prerequisites in the shell
+
+Before read the prerequisites defined into the shell.
 
 
 If you want to deploy a replicaset configuration, you have just to declare this section:
