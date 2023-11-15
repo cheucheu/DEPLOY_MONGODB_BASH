@@ -46,7 +46,3 @@ If you want to deploy a sharding conifiguration, you have just to declare this o
 
 The words replicaset, config, mongos and shard are mandatory to detect the configuration.  You can also define specific roles and users  but the password are not crypted during the installation.
 
-
-# DEPLOY_MONGODB_BASH
-# DEPLOY_MONGODB_BASH
-# DEPLOY_MONGODB_BASH
